@@ -634,7 +634,46 @@ class TcpServer(QTcpServer):
 
     def socketError(self):
         pass
-        
+
+class LauncherPlugin:
+    def __init__(self, launcher):
+        self.launcher = launcher
+        self.translators = []
+        self.mainWindow = None
+
+    def exit(self):
+        self.mainWindow.close()
+        for translator in self.translators:
+            self.launcher.removeTranslator(translator)
+
+    def installTranslator(self, translator):
+        self.launcher.installTranslator(translator)
+        self.translators.append(translator)
+
+# Adapter for running lightweight apps as launcher plugins. 
+# Implements parts of the subprocess.Popen API (poll(), kill(), returncode)
+# in order to keep changes to FtcGuiApplication as minimal as possible
+class LauncherPluginAdapter:
+    def __init__(self, launcher, module_script):
+        self.returncode = None
+        self.plugin = None
+        import importlib, re
+        module_name = re.search(BASE + "/(.+).py", module_script).group(1).replace("/", ".")
+        module = importlib.import_module(module_name)
+        try:
+            self.plugin = module.createPlugin(launcher)
+        except:
+            self.returncode = -1
+
+    def poll(self): 
+        return self.returncode
+
+    def kill(self):
+        if self.plugin:
+            self.plugin.exit()
+            self.plugin = None
+            self.returncode = 0
+
 class FtcGuiApplication(TouchApplication):
     def __init__(self, args):
         TouchApplication.__init__(self, args)
@@ -728,34 +767,37 @@ class FtcGuiApplication(TouchApplication):
         # run the executable
         self.app_executable = executable
 
-        # assume that we can just launch enything under non-windows
-        if platform.system() != 'Windows':
-
-            # give app the current locale
-            locale = self.locale.name()
-            env = os.environ.copy()
-            env["LANGUAGE"] = locale
-            env["LANG"] = locale
-            env["LC_ALL"] = locale
-
-            if self.log_file:
-                self.log_file.write("Application: " + executable + "\n")
-                self.log_file.write("Application started at: " + datetime.datetime.now().isoformat() + "\n")
-                self.log_file.flush()
-                self.log_master_fd, self.log_slave_fd = pty.openpty()
-                self.app_process = subprocess.Popen(str(executable), env=env, stdout=self.log_slave_fd, stderr=self.log_slave_fd)
-
-                # start a timer to monitor the ptys
-                self.log_timer = QTimer()
-                self.log_timer.timeout.connect(self.on_log_timer)
-                self.log_timer.start(100)
-            else:
-                self.app_process = subprocess.Popen(str(executable), env=env)
+        if managed.lower() == "launcher-plugin":
+            self.app_process = LauncherPluginAdapter(self, executable)
         else:
-            # under windows assume it's a python script that is
-            # to be launched and run that with pythonw (without console)
-            os.environ['PYTHONPATH'] = BASE
-            self.app_process = subprocess.Popen( ("pythonw", str(executable)) )
+            # assume that we can just launch enything under non-windows
+            if platform.system() != 'Windows':
+
+                # give app the current locale
+                locale = self.locale.name()
+                env = os.environ.copy()
+                env["LANGUAGE"] = locale
+                env["LANG"] = locale
+                env["LC_ALL"] = locale
+
+                if self.log_file:
+                    self.log_file.write("Application: " + executable + "\n")
+                    self.log_file.write("Application started at: " + datetime.datetime.now().isoformat() + "\n")
+                    self.log_file.flush()
+                    self.log_master_fd, self.log_slave_fd = pty.openpty()
+                    self.app_process = subprocess.Popen(str(executable), env=env, stdout=self.log_slave_fd, stderr=self.log_slave_fd)
+
+                    # start a timer to monitor the ptys
+                    self.log_timer = QTimer()
+                    self.log_timer.timeout.connect(self.on_log_timer)
+                    self.log_timer.start(100)
+                else:
+                    self.app_process = subprocess.Popen(str(executable), env=env)
+            else:
+                # under windows assume it's a python script that is
+                # to be launched and run that with pythonw (without console)
+                os.environ['PYTHONPATH'] = BASE
+                self.app_process = subprocess.Popen( ("pythonw", str(executable)) )
 
         # display some busy icon
         self.popup = BusyAnimation(self.app_process, self.w)
