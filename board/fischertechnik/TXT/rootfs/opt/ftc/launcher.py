@@ -642,13 +642,17 @@ class LauncherPlugin:
         self.mainWindow = None
 
     def exit(self):
-        self.mainWindow.close()
+        if self.mainWindow:
+            self.mainWindow.close()
         for translator in self.translators:
             self.launcher.removeTranslator(translator)
 
     def installTranslator(self, translator):
         self.launcher.installTranslator(translator)
         self.translators.append(translator)
+
+    def isClosed(self):
+        return not (self.mainWindow and self.mainWindow.isVisible())
 
 # Adapter for running lightweight apps as launcher plugins. 
 # Implements parts of the subprocess.Popen API (poll(), kill(), returncode)
@@ -665,7 +669,10 @@ class LauncherPluginAdapter:
         except:
             self.returncode = -1
 
-    def poll(self): 
+    def poll(self):
+        # Clean up if the plugin is finished but no return code has been set yet
+        if self.returncode is None and self.plugin and self.plugin.isClosed():
+            self.kill()
         return self.returncode
 
     def kill(self):
