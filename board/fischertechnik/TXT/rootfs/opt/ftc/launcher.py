@@ -653,6 +653,9 @@ class LauncherPlugin:
 
     def isClosed(self):
         return not (self.mainWindow and self.mainWindow.isVisible())
+    def locale(self):
+        try: return self.launcher.locale
+        except: return QLocale.system()
 
 # Adapter for running lightweight apps as launcher plugins. 
 # Implements parts of the subprocess.Popen API (poll(), kill(), returncode)
@@ -663,7 +666,7 @@ class LauncherPluginAdapter:
         self.plugin = None
         import importlib, re
         module_name = re.search(BASE + "/(.+).py", module_script).group(1).replace("/", ".")
-        module = importlib.import_module(module_name)
+        module = importlib.reload(importlib.import_module(module_name))
         try:
             self.plugin = module.createPlugin(launcher)
         except:
